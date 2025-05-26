@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>主机Ping监控系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3B82F6',
+                        secondary: '#10B981',
+                        danger: '#EF4444',
+                        warning: '#F59E0B',
+                        dark: '#1F2937',
+                        light: '#F3F4F6'
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .status-badge {
+                @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+            }
+            .status-badge-online {
+                @apply bg-green-100 text-green-800;
+            }
+            .status-badge-offline {
+                @apply bg-red-100 text-red-800;
+            }
+            .status-badge-pending {
+                @apply bg-yellow-100 text-yellow-800;
+            }
+            .card {
+                @apply bg-white rounded-lg shadow-md p-6 transition-all duration-300 hover:shadow-lg;
+            }
+            .btn {
+                @apply px-4 py-2 rounded-md font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2;
+            }
+            .btn-primary {
+                @apply bg-primary text-white hover:bg-primary/90 focus:ring-primary/50;
+            }
+            .btn-danger {
+                @apply bg-danger text-white hover:bg-danger/90 focus:ring-danger/50;
+            }
+            .btn-outline {
+                @apply border border-gray-300 text-gray-700 hover:bg-gray-50 focus:ring-gray-200;
+            }
+            .table-cell-padding {
+                @apply px-6 py-4 whitespace-nowrap;
+            }
+            .form-input {
+                @apply block w-full rounded-md border-gray-300 shadow-sm focus:border-primary focus:ring focus:ring-primary/20 transition-all;
+            }
+            .animate-pulse-slow {
+                animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+            }
+        }
+    </style>
+</head>
+<body class="font-inter bg-gray-50 text-gray-800 min-h-screen flex flex-col">
+    <!-- 导航栏 -->
+    <nav class="bg-white shadow-sm sticky top-0 z-10">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="#" class="flex-shrink-0 flex items-center">
+                        <i class="fa fa-server text-primary text-2xl mr-2"></i>
+                        <span class="font-bold text-xl">主机Ping监控系统</span>
+                    </a>
+                </div>
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <button id="refreshBtn" class="btn btn-outline mr-3">
+                            <i class="fa fa-refresh mr-1"></i> 刷新
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主要内容 -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- 状态概览 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="card bg-gradient-to-r from-primary to-blue-600 text-white">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium">总主机数</p>
+                        <h3 id="totalHosts" class="text-3xl font-bold mt-1">0</h3>
+                    </div>
+                    <div class="text-4xl opacity-70">
+                        <i class="fa fa-sitemap"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card bg-gradient-to-r from-secondary to-green-600 text-white">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium">在线主机</p>
+                        <h3 id="onlineHosts" class="text-3xl font-bold mt-1">0</h3>
+                    </div>
+                    <div class="text-4xl opacity-70">
+                        <i class="fa fa-check-circle"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card bg-gradient-to-r from-danger to-red-600 text-white">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm font-medium">离线主机</p>
+                        <h3 id="offlineHosts" class="text-3xl font-bold mt-1">0</h3>
+                    </div>
+                    <div class="text-4xl opacity-70">
+                        <i class="fa fa-times-circle"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 主机列表 -->
+        <div class="card mb-8">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+                <h2 class="text-xl font-bold mb-4 md:mb-0">主机监控列表</h2>
+                <div class="flex space-x-3">
+                    <div class="relative">
+                        <input type="text" id="searchInput" placeholder="搜索主机..." class="form-input pl-10 py-2 border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
+                        <i class="fa fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+                    </div>
+                    <button id="addHostBtn" class="btn btn-primary">
+                        <i class="fa fa-plus mr-1"></i> 添加主机
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="table-cell-padding text-left text-xs font-medium text-gray-500 uppercase tracking-wider">主机名</th>
+                            <th scope="col" class="table-cell-padding text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP地址</th>
+                            <th scope="col" class="table-cell-padding text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态</th>
+                            <th scope="col" class="table-cell-padding text-left text-xs font-medium text-gray-500 uppercase tracking-wider">响应时间</th>
+                            <th scope="col" class="table-cell-padding text-left text-xs font-medium text-gray-500 uppercase tracking-wider">最后检查</th>
+                            <th scope="col" class="table-cell-padding text-right text-xs font-medium text-gray-500 uppercase tracking-wider">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="hostTableBody" class="bg-white divide-y divide-gray-200">
+                        <!-- 主机列表将通过JavaScript动态填充 -->
+                        <tr class="animate-pulse-slow">
+                            <td colspan="6" class="table-cell-padding text-center text-gray-500">
+                                <i class="fa fa-spinner fa-spin mr-2"></i>正在加载主机数据...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div id="paginationControls" class="flex items-center justify-between border-t border-gray-200 px-4 py-3 sm:px-6 mt-4">
+                <div class="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                    <div>
+                        <p class="text-sm text-gray-700">
+                            显示第 <span id="currentPageRange">1-0</span> 条，共 <span id="totalHostsCount">0</span> 条
+                        </p>
+                    </div>
+                    <div>
+                        <nav class="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
+                            <button id="prevPageBtn" class="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                                <span class="sr-only">上一页</span>
+                                <i class="fa fa-chevron-left"></i>
+                            </button>
+                            <div id="pageNumbers" class="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
+                                1
+                            </div>
+                            <button id="nextPageBtn" class="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50">
+                                <span class="sr-only">下一页</span>
+                                <i class="fa fa-chevron-right"></i>
+                            </button>
+                        </nav>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 最近监控历史 -->
+        <div class="card">
+            <div class="flex items-center justify-between mb-6">
+                <h2 class="text-xl font-bold">最近监控历史</h2>
+                <div>
+                    <select id="historyLimit" class="form-input py-2 border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary">
+                        <option value="10">显示10条</option>
+                        <option value="20">显示20条</option>
+                        <option value="50">显示50条</option>
+                        <option value="100">显示100条</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="table-cell-padding text-left text-xs font-medium text-gray-500 uppercase tracking-wider">主机名</th>
+                            <th scope="col" class="table-cell-padding text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP地址</th>
+                            <th scope="col" class="table-cell-padding text-left text-xs font-medium text-gray-500 uppercase tracking-wider">状态变化</th>
+                            <th scope="col" class="table-cell-padding text-left text-xs font-medium text-gray-500 uppercase tracking-wider">时间</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyTableBody" class="bg-white divide-y divide-gray-200">
+                        <!-- 历史记录将通过JavaScript动态填充 -->
+                        <tr class="animate-pulse-slow">
+                            <td colspan="4" class="table-cell-padding text-center text-gray-500">
+                                <i class="fa fa-spinner fa-spin mr-2"></i>正在加载监控历史...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- 添加主机模态框 -->
+    <div id="addHostModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md transform transition-all">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-medium">添加新主机</h3>
+                    <button id="closeModalBtn" class="text-gray-400 hover:text-gray-500">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+                <form id="addHostForm">
+                    <div class="mb-4">
+                        <label for="hostName" class="block text-sm font-medium text-gray-700 mb-1">主机名</label>
+                        <input type="text" id="hostName" name="hostName" class="form-input py-2" placeholder="例如：web-server-01" required>
+                    </div>
+                    <div class="mb-4">
+                        <label for="hostIp" class="block text-sm font-medium text-gray-700 mb-1">IP地址</label>
+                        <input type="text" id="hostIp" name="hostIp" class="form-input py-2" placeholder="例如：192.168.1.1" required>
+                    </div>
+                    <div class="mb-4">
+                        <label for="pingInterval" class="block text-sm font-medium text-gray-700 mb-1">Ping间隔(秒)</label>
+                        <input type="number" id="pingInterval" name="pingInterval" class="form-input py-2" min="1" max="3600" value="60" required>
+                    </div>
+                    <div class="flex justify-end space-x-3 mt-6">
+                        <button type="button" id="cancelAddHostBtn" class="btn btn-outline">取消</button>
+                        <button type="submit" class="btn btn-primary">添加</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑主机模态框 -->
+    <div id="editHostModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md transform transition-all">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-medium">编辑主机</h3>
+                    <button id="closeEditModalBtn" class="text-gray-400 hover:text-gray-500">
+                        <i class="fa fa-times"></i>
+                    </button>
+                </div>
+                <form id="editHostForm">
+                    <input type="hidden" id="editHostId" name="editHostId">
+                    <div class="mb-4">
+                        <label for="editHostName" class="block text-sm font-medium text-gray-700 mb-1">主机名</label>
+                        <input type="text" id="editHostName" name="editHostName" class="form-input py-2" required>
+                    </div>
+                    <div class="mb-4">
+                        <label for="editHostIp" class="block text-sm font-medium text-gray-700 mb-1">IP地址</label>
+                        <input type="text" id="editHostIp" name="editHostIp" class="form-input py-2" required>
+                    </div>
+                    <div class="mb-4">
+                        <label for="editPingInterval" class="block text-sm font-medium text-gray-700 mb-1">Ping间隔(秒)</label>
+                        <input type="number" id="editPingInterval" name="editPingInterval" class="form-input py-2" min="1" max="3600" required>
+                    </div>
+                    <div class="flex justify-end space-x-3 mt-6">
+                        <button type="button" id="cancelEditHostBtn" class="btn btn-outline">取消</button>
+                        <button type="submit" class="btn btn-primary">保存</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 页脚 -->
+    <footer class="bg-white border-t border-gray-200 py-6">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <p class="text-center text-sm text-gray-500">
+                © 2025 主机Ping监控系统 | 最后更新: <span id="lastUpdated">--</span>
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // 全局变量
+        let currentPage = 1;
+        const hostsPerPage = 10;
+        let allHosts = [];
+        let filteredHosts = [];
+        let pingHistory = [];
+        let socket;
+
+        // DOM 元素
+        const hostTableBody = document.getElementById('hostTableBody');
+        const historyTableBody = document.getElementById('historyTableBody');
+        const paginationControls = document.getElementById('paginationControls');
+        const currentPageRange = document.getElementById('currentPageRange');
+        const totalHostsCount = document.getElementById('totalHostsCount');
+        const pageNumbers = document.getElementById('pageNumbers');
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        const totalHostsElement = document.getElementById('totalHosts');
+        const onlineHostsElement = document.getElementById('onlineHosts');
+        const offlineHostsElement = document.getElementById('offlineHosts');
+        const lastUpdatedElement = document.getElementById('lastUpdated');
+        const searchInput = document.getElementById('searchInput');
+        const addHostBtn = document.getElementById('addHostBtn');
+        const addHostModal = document.getElementById('addHostModal');
+        const closeModalBtn = document.getElementById('closeModalBtn');
+        const cancelAddHostBtn = document.getElementById('cancelAddHostBtn');
+        const addHostForm = document.getElementById('addHostForm');
+        const editHostModal = document.getElementById('editHostModal');
+        const closeEditModalBtn = document.getElementById('closeEditModalBtn');
+        const cancelEditHostBtn = document.getElementById('cancelEditHostBtn');
+        const editHostForm = document.getElementById('editHostForm');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const historyLimit = document.getElementById('historyLimit');
+
+        // 初始化函数
+        function init() {
+            // 连接WebSocket
+            connectWebSocket();
+            
+            // 事件监听器
+            searchInput.addEventListener('input', handleSearch);
+            addHostBtn.addEventListener('click', () => addHostModal.classList.remove('hidden'));
+            closeModalBtn.addEventListener('click', () => addHostModal.classList.add('hidden'));
+            cancelAddHostBtn.addEventListener('click', () => addHostModal.classList.add('hidden'));
+            addHostForm.addEventListener('submit', handleAddHost);
+            closeEditModalBtn.addEventListener('click', () => editHostModal.classList.add('hidden'));
+            cancelEditHostBtn.addEventListener('click', () => editHostModal.classList.add('hidden'));
+            editHostForm.addEventListener('submit', handleEditHost);
+            prevPageBtn.addEventListener('click', goToPrevPage);
+            nextPageBtn.addEventListener('click', goToNextPage);
+            refreshBtn.addEventListener('click', fetchHosts);
+            historyLimit.addEventListener('change', updateHistoryTable);
+
+            // 初始获取主机数据
+            fetchHosts();
+            fetchPingHistory();
+        }
+
+        // 连接WebSocket
+        function connectWebSocket() {
+            // 使用相对路径连接WebSocket
+            socket = new WebSocket(`ws://${window.location.host}/ws`);
+
+            socket.onopen = () => {
+                console.log('WebSocket连接已建立');
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'pingResult') {
+                    updateHostStatus(data.host);
+                    addToHistory(data.host);
+                } else if (data.type === 'hostsUpdated') {
+                    fetchHosts();
+                }
+            };
+
+            socket.onclose = () => {
+                console.log('WebSocket连接已关闭');
+                // 5秒后尝试重新连接
+                setTimeout(connectWebSocket, 5000);
+            };
+        }
+
+        // 获取主机数据
+        async function fetchHosts() {
+            try {
+                const response = await fetch('/api/hosts');
+                if (!response.ok) {
+                    throw new Error('获取主机数据失败');
+                }
+                allHosts = await response.json();
+                filteredHosts = [...allHosts];
+                updateHostTable();
+                updateStatusSummary();
+                updateLastUpdatedTime();
+            } catch (error) {
+                console.error('获取主机数据时出错:', error);
+                showErrorToast('获取主机数据失败，请稍后重试');
+            }
+        }
+
+        // 获取Ping历史记录
+        async function fetchPingHistory() {
+            try {
+                const limit = historyLimit.value;
+                const response = await fetch(`/api/history?limit=${limit}`);
+                if (!response.ok) {
+                    throw new Error('获取历史记录失败');
+                }
+                pingHistory = await response.json();
+                updateHistoryTable();
+            } catch (error) {
+                console.error('获取历史记录时出错:', error);
+                showErrorToast('获取历史记录失败，请稍后重试');
+            }
+        }
+
+        // 更新主机表格
+        function updateHostTable() {
+            const totalPages = Math.ceil(filteredHosts.length / hostsPerPage);
+            if (currentPage > totalPages && currentPage > 1) {
+                currentPage = totalPages;
+            }
+
+            const startIndex = (currentPage - 1) * hostsPerPage;
+            const endIndex = Math.min(startIndex + hostsPerPage, filteredHosts.length);
+            const currentHosts = filteredHosts.slice(startIndex, endIndex);
+
+            // 更新分页控件
+            updatePaginationControls();
+
+            // 更新表格内容
+            hostTableBody.innerHTML = '';
+
+            if (currentHosts.length === 0) {
+                const emptyRow = document.createElement('tr');
+                emptyRow.innerHTML = `
+                    <td colspan="6" class="table-cell-padding text-center text-gray-500">
+                        没有找到匹配的主机
+                    </td>
+                `;
+                hostTableBody.appendChild(emptyRow);
+                return;
+            }
+
+            currentHosts.forEach(host => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 transition-colors';
+                row.setAttribute('data-host-id', host.id);
+                
+                // 确定状态样式
+                let statusClass = 'status-badge-offline';
+                let statusText = '离线';
+                let statusIcon = 'times-circle';
+                let responseTime = 'N/A';
+                
+                if (host.lastPing) {
+                    if (host.lastPing.success) {
+                        statusClass = 'status-badge-online';
+                        statusText = '在线';
+                        statusIcon = 'check-circle';
+                        responseTime = `${host.lastPing.time}ms`;
+                    } else if (host.lastPing.pending) {
+                        statusClass = 'status-badge-pending';
+                        statusText = '正在检测';
+                        statusIcon = 'hourglass-half';
+                        responseTime = 'N/A';
+                    }
+                }
+                
+                // 格式化最后检查时间
+                let lastChecked = '从未';
+                if (host.lastPing && host.lastPing.timestamp) {
+                    lastChecked = formatDateTime(new Date(host.lastPing.timestamp));
+                }
+
+                row.innerHTML = `
+                    <td class="table-cell-padding">
+                        <div class="flex items-center">
+                            <i class="fa fa-server text-primary mr-3"></i>
+                            <div>
+                                <div class="text-sm font-medium text-gray-900">${host.name}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td class="table-cell-padding">
+                        <div class="text-sm text-gray-900">${host.ip}</div>
+                    </td>
+                    <td class="table-cell-padding">
+                        <span class="status-badge ${statusClass}">
+                            <i class="fa fa-${statusIcon} mr-1"></i> ${statusText}
+                        </span>
+                    </td>
+                    <td class="table-cell-padding">
+                        <div class="text-sm text-gray-900">${responseTime}</div>
+                    </td>
+                    <td class="table-cell-padding">
+                        <div class="text-sm text-gray-900">${lastChecked}</div>
+                    </td>
+                    <td class="table-cell-padding text-right">
+                        <div class="flex justify-end space-x-2">
+                            <button class="edit-host-btn p-1 text-gray-500 hover:text-primary transition-colors" title="编辑">
+                                <i class="fa fa-pencil"></i>
+                            </button>
+                            <button class="delete-host-btn p-1 text-gray-500 hover:text-danger transition-colors" title="删除">
+                                <i class="fa fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                `;
+
+                hostTableBody.appendChild(row);
+
+                // 添加编辑按钮事件
+                const editBtn = row.querySelector('.edit-host-btn');
+                editBtn.addEventListener('click', () => openEditHostModal(host));
+
+                // 添加删除按钮事件
+                const deleteBtn = row.querySelector('.delete-host-btn');
+                deleteBtn.addEventListener('click', () => confirmDeleteHost(host));
+            });
+        }
+
+        // 更新历史表格
+        function updateHistoryTable() {
+            historyTableBody.innerHTML = '';
+
+            if (pingHistory.length === 0) {
+                const emptyRow = document.createElement('tr');
+                emptyRow.innerHTML = `
+                    <td colspan="4" class="table-cell-padding text-center text-gray-500">
+                        没有历史记录
+                    </td>
+                `;
+                historyTableBody.appendChild(emptyRow);
+                return;
+            }
+
+            pingHistory.forEach(entry => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 transition-colors';
+                
+                // 确定状态变化样式
+                let statusChangeClass = 'text-green-600';
+                let statusChangeText = '上线';
+                if (!entry.success) {
+                    statusChangeClass = 'text-red-600';
+                    statusChangeText = '离线';
+                }
+
+                // 格式化时间
+                const timestamp = formatDateTime(new Date(entry.timestamp));
+
+                row.innerHTML = `
+                    <td class="table-cell-padding">
+                        <div class="text-sm text-gray-900">${entry.hostName}</div>
+                    </td>
+                    <td class="table-cell-padding">
+                        <div class="text-sm text-gray-900">${entry.hostIp}</div>
+                    </td>
+                    <td class="table-cell-padding">
+                        <div class="text-sm ${statusChangeClass} font-medium">${statusChangeText}</div>
+                    </td>
+                    <td class="table-cell-padding">
+                        <div class="text-sm text-gray-900">${timestamp}</div>
+                    </td>
+                `;
+
+                historyTableBody.appendChild(row);
+            });
+        }
+
+        // 更新分页控件
+        function updatePaginationControls() {
+            const totalPages = Math.max(1, Math.ceil(filteredHosts.length / hostsPerPage));
+            
+            // 更新页码显示
+            pageNumbers.textContent = `${currentPage} / ${totalPages}`;
+            
+            // 更新当前页范围和总数
+            const startIndex = (currentPage - 1) * hostsPerPage + 1;
+            const endIndex = Math.min(currentPage * hostsPerPage, filteredHosts.length);
+            currentPageRange.textContent = `${startIndex}-${endIndex}`;
+            totalHostsCount.textContent = filteredHosts.length;
+            
+            // 更新状态摘要
+            totalHostsElement.textContent = allHosts.length;
+            
+            // 启用/禁用上一页按钮
+            if (currentPage <= 1) {
+                prevPageBtn.disabled = true;
+                prevPageBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                prevPageBtn.disabled = false;
+                prevPageBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+            
+            // 启用/禁用下一页按钮
+            if (currentPage >= totalPages) {
+                nextPageBtn.disabled = true;
+                nextPageBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                nextPageBtn.disabled = false;
+                nextPageBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+            
+            // 显示/隐藏分页控件
+            if (filteredHosts.length <= hostsPerPage) {
+                paginationControls.classList.add('hidden');
+            } else {
+                paginationControls.classList.remove('hidden');
+            }
+        }
+
+        // 更新状态摘要
+        function updateStatusSummary() {
+            const onlineCount = allHosts.filter(host => 
+                host.lastPing && host.lastPing.success
+            ).length;
+            
+            onlineHostsElement.textContent = onlineCount;
+            offlineHostsElement.textContent = allHosts.length - onlineCount;
+        }
+
+        // 更新最后更新时间
+        function updateLastUpdatedTime() {
+            lastUpdatedElement.textContent = formatDateTime(new Date());
+        }
+
+        // 处理搜索
+        function handleSearch() {
+            const searchTerm = searchInput.value.toLowerCase().trim();
+            if (searchTerm === '') {
+                filteredHosts = [...allHosts];
+            } else {
+                filteredHosts = allHosts.filter(host => 
+                    host.name.toLowerCase().includes(searchTerm) || 
+                    host.ip.toLowerCase().includes(searchTerm)
+                );
+            }
+            currentPage = 1;
+            updateHostTable();
+        }
+
+        // 前往上一页
+        function goToPrevPage() {
+            if (currentPage > 1) {
+                currentPage--;
+                updateHostTable();
+            }
+        }
+
+        // 前往下一页
+        function goToNextPage() {
+            const totalPages = Math.ceil(filteredHosts.length / hostsPerPage);
+            if (currentPage < totalPages) {
+                currentPage++;
+                updateHostTable();
+            }
+        }
+
+        // 打开编辑主机模态框
+        function openEditHostModal(host) {
+            document.getElementById('editHostId').value = host.id;
+            document.getElementById('editHostName').value = host.name;
+            document.getElementById('editHostIp').value = host.ip;
+            document.getElementById('editPingInterval').value = host.interval;
+            editHostModal.classList.remove('hidden');
+        }
+
+        // 处理添加主机
+        async function handleAddHost(e) {
+            e.preventDefault();
+            
+            const name = document.getElementById('hostName').value.trim();
+            const ip = document.getElementById('hostIp').value.trim();
+            const interval = parseInt(document.getElementById('pingInterval').value, 10);
+            
+            try {
+                const response = await fetch('/api/hosts', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name, ip, interval })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('添加主机失败');
+                }
+                
+                addHostModal.classList.add('hidden');
+                addHostForm.reset();
+                fetchHosts();
+                showSuccessToast('主机添加成功');
+            } catch (error) {
+                console.error('添加主机时出错:', error);
+                showErrorToast('添加主机失败，请检查输入');
+            }
+        }
+
+        // 处理编辑主机
+        async function handleEditHost(e) {
+            e.preventDefault();
+            
+            const id = document.getElementById('editHostId').value;
+            const name = document.getElementById('editHostName').value.trim();
+            const ip = document.getElementById('editHostIp').value.trim();
+            const interval = parseInt(document.getElementById('editPingInterval').value, 10);
+            
+            try {
+                const response = await fetch(`/api/hosts/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ name, ip, interval })
+                });
+                
+                if (!response.ok) {
+                    throw new Error('更新主机失败');
+                }
+                
+                editHostModal.classList.add('hidden');
+                fetchHosts();
+                showSuccessToast('主机更新成功');
+            } catch (error) {
+                console.error('更新主机时出错:', error);
+                showErrorToast('更新主机失败，请检查输入');
+            }
+        }
+
+        // 确认删除主机
+        function confirmDeleteHost(host) {
+            if (confirm(`确定要删除主机 "${host.name}" (${host.ip}) 吗？`)) {
+                deleteHost(host.id);
+            }
+        }
+
+        // 删除主机
+        async function deleteHost(id) {
+            try {
+                const response = await fetch(`/api/hosts/${id}`, {
+                    method: 'DELETE'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('删除主机失败');
+                }
+                
+                fetchHosts();
+                showSuccessToast('主机删除成功');
+            } catch (error) {
+                console.error('删除主机时出错:', error);
+                showErrorToast('删除主机失败，请稍后重试');
+            }
+        }
+
+        // 更新单个主机状态
+        function updateHostStatus(updatedHost) {
+            const index = allHosts.findIndex(host => host.id === updatedHost.id);
+            if (index !== -1) {
+                allHosts[index] = updatedHost;
+                
+                // 如果当前页包含该主机，则更新表格中的行
+                const startIndex = (currentPage - 1) * hostsPerPage;
+                const endIndex = Math.min(startIndex + hostsPerPage, filteredHosts.length);
+                
+                if (filteredHosts.some(h => h.id === updatedHost.id)) {
+                    updateHostTable();
+                }
+                
+                updateStatusSummary();
+                updateLastUpdatedTime();
+            }
+        }
+
+        // 添加到历史记录
+        function addToHistory(host) {
+            if (host.lastPing && !host.lastPing.pending) {
+                const historyEntry = {
+                    hostId: host.id,
+                    hostName: host.name,
+                    hostIp: host.ip,
+                    success: host.lastPing.success,
+                    timestamp: host.lastPing.timestamp
+                };
+                
+                // 添加到前端历史记录
+                pingHistory.unshift(historyEntry);
+                // 保持历史记录不超过限制
+                const limit = parseInt(historyLimit.value, 10);
+                if (pingHistory.length > limit) {
+                    pingHistory = pingHistory.slice(0, limit);
+                }
+                
+                // 更新历史表格
+                updateHistoryTable();
+            }
+        }
+
+        // 显示成功提示
+        function showSuccessToast(message) {
+            showToast(message, 'bg-green-500');
+        }
+
+        // 显示错误提示
+        function showErrorToast(message) {
+            showToast(message, 'bg-red-500');
+        }
+
+        // 显示提示
+        function showToast(message, bgColor) {
+            // 创建toast元素
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-4 right-4 px-4 py-3 rounded-md shadow-lg transform transition-all duration-300 translate-y-10 opacity-0 ${bgColor} text-white z-50 flex items-center`;
+            toast.innerHTML = `
+                <i class="fa fa-check-circle mr-2"></i>
+                <span>${message}</span>
+            `;
+            
+            // 如果是错误提示，使用错误图标
+            if (bgColor === 'bg-red-500') {
+                toast.innerHTML = `
+                    <i class="fa fa-exclamation-circle mr-2"></i>
+                    <span>${message}</span>
+                `;
+            }
+            
+            // 添加到页面
+            document.body.appendChild(toast);
+            
+            // 显示toast
+            setTimeout(() => {
+                toast.classList.remove('translate-y-10', 'opacity-0');
+            }, 10);
+            
+            // 3秒后隐藏
+            setTimeout(() => {
+                toast.classList.add('translate-y-10', 'opacity-0');
+                setTimeout(() => {
+                    document.body.removeChild(toast);
+                }, 300);
+            }, 3000);
+        }
+
+        // 格式化日期时间
+        function formatDateTime(date) {
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
+    
